@@ -1,0 +1,8 @@
+The schema will have
+
+id: This will store the user id, which we can grab to match 
+to the database
+
+username: This will grab the name
+
+password
