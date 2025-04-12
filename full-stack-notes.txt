@@ -1,0 +1,398 @@
+Backend Setup (Node.js + Express + Prisma)
+
+
+
+
+
+Create a backend folder and switch to it
+
+mkdir backend && cd backend
+
+
+
+Initialize the backend folder
+
+npm init -y
+
+
+
+
+
+Install Backend Dependencies
+
+npm i express bcryptjs dotenv cors express-validator jsonwebtoken @prisma/client
+
+npm i --save-dev prisma
+
+
+
+Prisma Setup
+
+
+
+
+
+Initialize Prisma
+
+npx prisma init
+
+
+
+Define your schema (if it’s not already defined by default). Add this code into a new file called whatever you want but I call mine prisma.js
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id Int @id @default(autoincrement())
+  username String @unique
+  password String
+}
+
+
+
+Migrate DB
+
+npx prisma migrate dev --name init
+
+
+
+/backend
+  ├── server.js
+  ├── routes/
+  │   └── auth.js
+  ├── middleware/
+  │   └── authenticateJWT.js
+  ├── utils/
+  │   └── generateToken.js   ← jwt.sign lives here
+
+
+
+
+
+Create the file that generates the Auth Token
+
+
+
+
+
+User submits username & password
+
+
+
+Finds the user in DB
+
+
+
+Compare hashed passwords with bcrypt.compare
+
+
+
+if valid, return a signed JWT token
+
+
+
+
+
+
+
+utils/generateToken.js
+
+// utils/generateToken.js
+
+const jwt = require('jsonwebtoken');
+
+/* generateToken takes userId as input. It creates
+a signed token, encodes the user id in the token,
+the process.env.JWT_SECRET portion uses the secret
+key (which is stored in environment variables) to sign
+the token, and expiresIn is the duration you want the
+token to stay active.  */
+
+/* By setting a short duration for the token, you can account
+for this by having refresh tokens */
+
+/* TL:DR It generates a signed JWT containing the user's ID,
+valid for 1 hour */
+
+const generateToken = (userId) => {
+  return jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: '1h' })
+}
+
+module.exports = generateToken;
+
+
+
+Use the generateToken function inside of auth.js
+
+// routes/auth.js
+const generateToken = require('./utils/generateToken');
+
+// Inside your login route
+
+// This variable, token, is added to your login route
+const token = generateToken(user.id);
+res.json({
+  token
+});
+
+
+
+
+/backend
+  ├── server.js  <-- server.js is here
+  ├── routes/
+  │   └── auth.js
+  ├── middleware/
+  │   └── authenticateJWT.js
+  ├── utils/
+  │   └── generateToken.js   
+
+
+
+Express Server Setup (server.js)
+
+
+
+NOTE!
+
+
+
+
+
+The app.listen port # is the backend port
+
+
+
+The cors origin port is the frontend port created by Vite
+
+
+
+When your React frontend (running on Vite at http://localhost:5173) tries to make a request like axios.get('http://localhost:5000/dashboard')…it’s cross-origin, because the ports are different. Thats why you need the app.use in the backend.
+
+
+
+const express = require('express');
+const corrs = require('cors');
+const dotenv = require('dotenv');
+const { PrismaClient } = require('@prisma/client');
+const { body, validationResult } = require('express-validator');
+const bcrypt = require('bcryptjs');
+const jwt = require('
+
+dotenv.config();
+const app = express();
+const prisma = new PrismaClient();
+
+// Configure the middleware
+
+app.use(cors({ origin: 'http://localhost:5173' }));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// JWT Auth Middleware
+const authenticateJWT = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.sendStatus(401);
+  const token = authHeader.split(' ')[1];
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+  if (err) return rese.sendStatus(403);
+  req.user = user;
+  next();
+});
+};
+
+// Login Route
+app.post('/login', [
+  body('username').notEmpty(),
+  body('password').notEmpty()
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({
+    errors: errors.array()
+  });
+
+  const { username, password } = req.body;
+  const user = await prisma.user.findUnique({
+    where: { username }
+  });
+  if (!user) return res.status(401).json({
+    message: 'Invalid username or password'
+  })
+
+  const isMatch = await bcrypt.compare(password, user.password);
+  if (!isMatch) return res.status(401).json({
+    message: 'Invalid username or password'
+  })
+
+  const token = jwt.sign({
+    id: user.id
+  }, process.env.JWT_SECRET, {
+    expiresIn: '1h'
+  });
+
+  res.json({ token });
+});
+
+// All protected routes require the authenticateJWT
+// function for the token
+app.get('/dashboard', authenticateJWT, (req, res) => {
+  res.json({ message: 'Welcome to the dashboard!' });
+})
+
+app.listen(5000, () => console.log('Server running on port 5000'));
+
+
+
+Generate the JWT_SECRET_KEY and place it in .env as JWT_SECRET_KEY
+
+
+
+
+
+
+
+Use node for this
+
+require('crypto').randomBytes(32).toString('hex');
+
+
+
+Frontend Setup (React + Vite)
+
+
+
+
+
+
+
+In the project root, use this
+
+
+
+npm create vite@latest frontend -- --template react
+cd frontend
+npm install
+
+
+
+
+
+
+
+Install frontend Dependencies
+
+npm i axios react-router-dom
+
+
+
+
+
+
+
+Run dev server
+
+npm run dev
+
+
+
+React Auth Flow Summary
+
+
+
+Login Component (src/Login.jsx)
+
+
+
+import React, { useState } from 'react';
+import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
+
+function Login() {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const navigate = useNavigate();
+
+  const handleSubmit = async(e) => {
+    e.preventDefault();
+    try {
+      const res = await axios.post('http://localhost:5000/login', { username, password });
+      localStorage.setItem('token', res.data.token);
+      navigate('/dashboard');
+    } catch(err) {
+      setError(err.response?.data?.message || 'Login failed');
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input value={username} onChange={(e) => setUsername(e.target.value)} />
+      <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" />
+      <button type="submit">Login</button>
+     // If error is truthy, display the error
+      {error && <p>{error}</p>}
+    </form>
+  )
+}
+
+export default Login;
+
+
+
+Dashboard Component (src/Dashboard.jsx)
+
+
+
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
+
+function Dashboard() {
+  const [message, setMessage] = useState('');
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return navigate('/');
+
+    axios.get('http://localhost:5000/dashboard', {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    .then((res) => setMessage(res.data.message))
+    .catch(() => navigate('/'));
+  }, [navigate]);
+
+  return <h1>{message}</h1>
+}
+
+export default Dashboard;
+
+
+
+Routing (src/App.jsx)
+
+
+
+import {BrowserRouter as Router, Routes, Route} from 'react-router-dom';
+import Login from './Login';
+import Dashboard from './Dashboard';
+
+function App() {
+  return (
+    <Router>
+      <Routes>
+        <Route path="/" element={<Login />} />
+        <Route path="/dashboard" element={<Dashboard />} />
+      </Routes>
+    </Router>
+  )
+}
+
