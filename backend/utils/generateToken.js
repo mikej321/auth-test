@@ -1,9 +1,10 @@
 const jwt = require("jsonwebtoken");
 
-const generateToken = (userId) => {
+const generateToken = (user) => {
   return jwt.sign(
     {
-      id: userId,
+      id: user.id,
+      username: user.username
     },
     process.env.JWT_SECRET,
     {

@@ -6,3 +6,7 @@ to the database
 username: This will grab the name
 
 password
+
+role name: test_user
+role password: testpass
+database name: test_auth
